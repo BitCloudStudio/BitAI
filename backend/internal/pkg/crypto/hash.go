@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -25,6 +26,11 @@ func RandomToken(prefix string, size int) (string, error) {
 
 func SHA256Hex(value string) string {
 	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func MD5Hex(value string) string {
+	sum := md5.Sum([]byte(value))
 	return hex.EncodeToString(sum[:])
 }
 

@@ -10,7 +10,7 @@ const creating = ref(false);
 const keys = ref<APIKey[]>([]);
 const visible = ref(false);
 const newKey = ref('');
-const gatewayBaseURL = computed(() => `${window.location.protocol}//${window.location.hostname}:8080`);
+const gatewayBaseURL = computed(() => window.location.origin);
 const openAIBaseURL = computed(() => `${gatewayBaseURL.value}/v1`);
 const responsesURL = computed(() => `${gatewayBaseURL.value}/responses`);
 const form = reactive({

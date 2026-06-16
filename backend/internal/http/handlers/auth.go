@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"bitapi/backend/internal/http/middleware"
 	bithttp "bitapi/backend/internal/http/respond"
@@ -68,6 +69,10 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
+	if !h.settingEnabled("module.auth.register.enabled", true) {
+		bithttp.Fail(c, http.StatusForbidden, "注册功能已关闭")
+		return
+	}
 	var req authRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		bithttp.Fail(c, http.StatusBadRequest, err.Error())
@@ -91,6 +96,23 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 	bithttp.Created(c, pair)
+}
+
+func (h *AuthHandler) settingEnabled(key string, fallback bool) bool {
+	var setting struct {
+		Value string
+	}
+	if err := h.db.Table("settings").Select("value").Where("key = ?", key).Take(&setting).Error; err != nil {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(setting.Value)) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	case "0", "false", "no", "off", "disabled":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {

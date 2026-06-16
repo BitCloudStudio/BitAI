@@ -1,5 +1,5 @@
 import { apiClient, unwrap } from './client';
-import type { APIKey, PaymentOrder, UsageLog } from '../types';
+import type { APIKey, PaymentIntent, PaymentOrder, UsageLog, User } from '../types';
 
 export interface CreateKeyPayload {
   name: string;
@@ -8,7 +8,24 @@ export interface CreateKeyPayload {
   expires_at?: string;
 }
 
+export interface UpdateProfilePayload {
+  display_name: string;
+  avatar_url?: string;
+}
+
 export const userApi = {
+  updateProfile(payload: UpdateProfilePayload) {
+    return unwrap<User>(apiClient.patch('/user/profile', payload));
+  },
+  uploadAvatar(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return unwrap<{ avatar_url: string }>(
+      apiClient.post('/user/avatar', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+    );
+  },
   keys() {
     return unwrap<APIKey[]>(apiClient.get('/user/api-keys'));
   },
@@ -25,7 +42,7 @@ export const userApi = {
     return unwrap<PaymentOrder[]>(apiClient.get('/user/orders'));
   },
   createOrder(payload: { amount_micros: number; provider?: string }) {
-    return unwrap<PaymentOrder>(apiClient.post('/user/orders', payload));
+    return unwrap<PaymentIntent>(apiClient.post('/user/orders', payload));
   },
   redeem(code: string) {
     return unwrap(apiClient.post('/user/redeem', { code }));

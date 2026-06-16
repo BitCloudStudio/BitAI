@@ -43,7 +43,12 @@ export function modeLabel(mode?: string) {
 
 export function providerLabel(provider?: string) {
   const labels: Record<string, string> = {
-    manual: '人工处理'
+    manual: '人工处理',
+    epay: '易支付',
+    codepay: '码支付',
+    xunhupay: '虎皮椒',
+    alipay_f2f: '支付宝当面付',
+    wechat_native: '微信官方支付'
   };
   return labels[provider || ''] || '未知方式';
 }

@@ -3,8 +3,12 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -46,6 +50,8 @@ func TestRouterAuthAdminAndGatewayModels(t *testing.T) {
 
 	token := login(t, router, conn, cfg.BootstrapEmail, cfg.BootstrapPassword)
 	adminGet(t, router, token, "/api/v1/admin/stats")
+	updateProfile(t, router, conn, token)
+	uploadAvatar(t, router, token)
 	upsertSetting(t, router, token)
 	createEncryptedUpstream(t, router, conn, token)
 	exerciseBilling(t, router, conn, token)
@@ -172,6 +178,72 @@ func deleteRedeemCode(t *testing.T, handler http.Handler, token, path string) {
 	}
 }
 
+func uploadAvatar(t *testing.T, handler http.Handler, token string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	previousWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get wd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir temp: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(previousWd); err != nil {
+			t.Fatalf("restore wd: %v", err)
+		}
+	}()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "avatar.png")
+	if err != nil {
+		t.Fatalf("create multipart: %v", err)
+	}
+	if _, err := part.Write([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d}); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/avatar", &body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload avatar status %d body %s", rec.Code, rec.Body.String())
+	}
+	var response envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode avatar response: %v", err)
+	}
+	var data struct {
+		AvatarURL string `json:"avatar_url"`
+	}
+	if err := json.Unmarshal(response.Data, &data); err != nil {
+		t.Fatalf("decode avatar data: %v", err)
+	}
+	if !strings.HasPrefix(data.AvatarURL, "/uploads/avatars/") || !strings.HasSuffix(data.AvatarURL, ".png") {
+		t.Fatalf("avatar url invalid: %q", data.AvatarURL)
+	}
+	savedPath := filepath.Join(tmpDir, "data", filepath.FromSlash(strings.TrimPrefix(data.AvatarURL, "/")))
+	saved, err := os.Open(savedPath)
+	if err != nil {
+		t.Fatalf("avatar file not saved: %v", err)
+	}
+	_ = saved.Close()
+	staticReq := httptest.NewRequest(http.MethodGet, data.AvatarURL, nil)
+	staticRec := httptest.NewRecorder()
+	handler.ServeHTTP(staticRec, staticReq)
+	if staticRec.Code != http.StatusOK {
+		t.Fatalf("static avatar status %d", staticRec.Code)
+	}
+	if _, err := io.ReadAll(staticRec.Body); err != nil {
+		t.Fatalf("read static avatar: %v", err)
+	}
+}
+
 type envelope struct {
 	Code int             `json:"code"`
 	Data json.RawMessage `json:"data"`
@@ -242,6 +314,31 @@ func upsertSetting(t *testing.T, handler http.Handler, token string) {
 	})
 	if body.Code != 0 {
 		t.Fatalf("setting failed: %+v", body)
+	}
+}
+
+func updateProfile(t *testing.T, handler http.Handler, conn *gorm.DB, token string) {
+	t.Helper()
+	body := patchJSON(t, handler, token, "/api/v1/user/profile", map[string]any{
+		"display_name": "新版用户名",
+		"avatar_url":   "https://example.test/avatar.png",
+	})
+	if body.Code != 0 {
+		t.Fatalf("update profile failed: %+v", body)
+	}
+	var data models.User
+	if err := json.Unmarshal(body.Data, &data); err != nil {
+		t.Fatalf("decode profile: %v", err)
+	}
+	if data.DisplayName != "新版用户名" || data.AvatarURL != "https://example.test/avatar.png" {
+		t.Fatalf("profile response mismatch: name=%q avatar=%q", data.DisplayName, data.AvatarURL)
+	}
+	var stored models.User
+	if err := conn.Where("email = ?", "admin@example.test").First(&stored).Error; err != nil {
+		t.Fatalf("read updated profile: %v", err)
+	}
+	if stored.DisplayName != data.DisplayName || stored.AvatarURL != data.AvatarURL {
+		t.Fatalf("profile not persisted: stored=%q/%q response=%q/%q", stored.DisplayName, stored.AvatarURL, data.DisplayName, data.AvatarURL)
 	}
 }
 
@@ -322,6 +419,26 @@ func postJSON(t *testing.T, handler http.Handler, token, path string, payload ma
 	handler.ServeHTTP(rec, req)
 	if rec.Code < 200 || rec.Code >= 300 {
 		t.Fatalf("POST %s: status %d body %s", path, rec.Code, rec.Body.String())
+	}
+	var body envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+	return body
+}
+
+func patchJSON(t *testing.T, handler http.Handler, token, path string, payload map[string]any) envelope {
+	t.Helper()
+	raw, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPatch, path, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code < 200 || rec.Code >= 300 {
+		t.Fatalf("PATCH %s: status %d body %s", path, rec.Code, rec.Body.String())
 	}
 	var body envelope
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {

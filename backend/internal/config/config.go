@@ -27,12 +27,12 @@ func Load() Config {
 	return Config{
 		AppName:            env("BITAPI_APP_NAME", "BitAPI"),
 		Env:                env("BITAPI_ENV", "development"),
-		HTTPAddr:           env("BITAPI_HTTP_ADDR", ":8080"),
+		HTTPAddr:           env("BITAPI_HTTP_ADDR", ":8091"),
 		DatabaseDSN:        env("BITAPI_DATABASE_DSN", "file:data/bitapi.db?_foreign_keys=on&_busy_timeout=5000"),
 		JWTSecret:          env("BITAPI_JWT_SECRET", "change-me-bitapi-dev-secret"),
 		AccessTokenTTL:     durationEnv("BITAPI_ACCESS_TOKEN_TTL", 30*time.Minute),
 		RefreshTokenTTL:    durationEnv("BITAPI_REFRESH_TOKEN_TTL", 14*24*time.Hour),
-		CORSOrigins:        csvEnv("BITAPI_CORS_ORIGINS", []string{"http://localhost:5173", "http://127.0.0.1:5173"}),
+		CORSOrigins:        appendUnique(csvEnv("BITAPI_CORS_ORIGINS", []string{"http://localhost:8091", "http://127.0.0.1:8091"}), []string{"http://localhost:8091", "http://127.0.0.1:8091", "https://www.bitit.cn", "https://bitit.cn", "https://demo.bitit.cn", "https://*.bitit.cn"}),
 		BootstrapEmail:     env("BITAPI_BOOTSTRAP_EMAIL", "admin@bitapi.local"),
 		BootstrapPassword:  env("BITAPI_BOOTSTRAP_PASSWORD", "bitapi-admin"),
 		BootstrapName:      env("BITAPI_BOOTSTRAP_NAME", "BitAPI 管理员"),
@@ -65,6 +65,23 @@ func csvEnv(key string, fallback []string) []string {
 		return fallback
 	}
 	return values
+}
+
+func appendUnique(values []string, extra []string) []string {
+	seen := make(map[string]struct{}, len(values)+len(extra))
+	result := make([]string, 0, len(values)+len(extra))
+	for _, value := range append(values, extra...) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func durationEnv(key string, fallback time.Duration) time.Duration {

@@ -1,7 +1,14 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { usePublicConfigStore } from '../stores/publicConfig';
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/',
+    name: 'portal',
+    meta: { title: '首页' },
+    component: () => import('../pages/portal/PortalPage.vue')
+  },
   {
     path: '/auth',
     component: () => import('../layouts/AuthLayout.vue'),
@@ -15,7 +22,6 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../layouts/UserLayout.vue'),
     meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: '/dashboard' },
       { path: 'dashboard', name: 'dashboard', meta: { title: '控制台' }, component: () => import('../pages/user/DashboardPage.vue') },
       { path: 'api-keys', name: 'api-keys', meta: { title: '调用密钥' }, component: () => import('../pages/user/ApiKeysPage.vue') },
       { path: 'billing', name: 'billing', meta: { title: '费用中心' }, component: () => import('../pages/user/BillingPage.vue') },
@@ -36,7 +42,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'settings', name: 'admin-settings', meta: { title: '系统设置' }, component: () => import('../pages/admin/AdminSettingsPage.vue') }
     ]
   },
-  { path: '/:pathMatch(.*)*', redirect: '/dashboard' }
+  { path: '/:pathMatch(.*)*', redirect: '/' }
 ];
 
 export const router = createRouter({
@@ -46,6 +52,20 @@ export const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
+  const publicConfig = usePublicConfigStore();
+  if (!publicConfig.loaded) {
+    try {
+      await publicConfig.load();
+    } catch {
+      publicConfig.loaded = true;
+    }
+  }
+  if (to.name === 'portal' && !publicConfig.enabled('module.portal.enabled', true)) {
+    return { name: 'login' };
+  }
+  if (to.name === 'register' && !publicConfig.enabled('module.auth.register.enabled', true)) {
+    return { name: 'login' };
+  }
   if (auth.accessToken && !auth.user) {
     try {
       await auth.loadMe();

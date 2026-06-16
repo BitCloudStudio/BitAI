@@ -119,6 +119,15 @@ export interface PaymentOrder {
   created_at: string;
 }
 
+export interface PaymentIntent extends PaymentOrder {
+  order: PaymentOrder;
+  provider: string;
+  payment_url?: string;
+  qr_code?: string;
+  form_html?: string;
+  message?: string;
+}
+
 export interface RedeemCode {
   id: number;
   code?: string;
